@@ -1,0 +1,11 @@
+[package]
+name = "vulture-scheme"
+version = "0.1.0"
+authors = ["William Young <wil.wyo@gmail.com>"]
+edition = "2018"
+publish = false
+
+[dependencies]
+lazy_static = "^1.4"
+regex = "^1.4"
+unicode-segmentation = "^1.7"
