@@ -1,10 +1,7 @@
-use crate::lexer::Fragment;
-
 #[derive(Debug)]
-pub enum Error {
-    Ambiguous(String, Vec<Fragment>),
+pub enum LexError {
     EscapeAtEndOfString(String),
     InvalidEscapeSequence(String),
     NoMatch(String),
-    ReservedSymbol(String, usize),
+    //ReservedSymbol(String, usize),
 }

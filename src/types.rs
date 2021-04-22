@@ -42,5 +42,5 @@ pub enum Number {
     Complex(f64, f64),
     Real(f64),
     Rational(i64, u64),
-    Integer(i64),
+    Integral(i64),
 }
