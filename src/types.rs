@@ -1,7 +1,4 @@
-use std::{
-    fmt,
-    sync::Arc,
-};
+use std::{fmt, sync::Arc};
 
 pub type Obj = Arc<ObjType>;
 
