@@ -1,5 +1,5 @@
 use crate::{error::LexError as Error, types::Number};
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use regex::{Regex, RegexSet};
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -88,17 +88,18 @@ pub fn lex(corpus: &str) -> Result<Vec<Token>, Error> {
     Ok(tokens)
 }
 
-type Lexer = dyn for<'a> Fn(&'a Corpus) -> Result<Token, Error> + Sync;
+type Lexer = dyn for<'a> Fn(&'a Corpus) -> Result<Token, Error> + Send + Sync;
 macro_rules! gen_matchers {
     { $($f:ident => $re:expr),+$(,)? } => {
-        lazy_static! {
-            static ref ALL: RegexSet = RegexSet::new(&[$($re),+]).unwrap();
-            static ref LEXERS: Vec<Box<Lexer>> =
-                vec![$(Box::new(|c| {
-                    let re = Regex::new($re).unwrap();
-                    decode::$f(re, c)
-                })),+];
-        }
+        static ALL: Lazy<RegexSet> = Lazy::new(||
+            RegexSet::new(&[$($re),+]).unwrap()
+        );
+        static LEXERS: Lazy<Vec<Box<Lexer>>> = Lazy::new(||
+            vec![$(Box::new(|c| {
+                let re = Regex::new($re).unwrap();
+                decode::$f(re, c)
+            })),+]
+        );
     };
 }
 
