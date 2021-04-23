@@ -107,7 +107,7 @@ gen_matchers! {
     parens => r"[()]",
     true_ => r"^#t(?:rue)?",
     false_ => r"^#f(?:alse)?",
-    string => r#"^"((?:[^"\\]|\\"|\\\\|\\\s*)*)""#,
+    string => r#"^"((?:[^"\\]|\\[^\s]|\\\s*)*)""#,
     inf_nan => r"^(\+|-)(inf|nan)\.0",
     rational_number => r"(?x)^
         ([\+-]?\d+       # numerator
