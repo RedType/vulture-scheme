@@ -15,7 +15,6 @@ pub struct Tagged<T> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Lexeme {
-    Nothing,
     Identifier(String),
     LParen,
     RParen,
@@ -25,6 +24,7 @@ pub enum Lexeme {
     False,
 }
 
+#[derive(Debug)]
 pub struct Corpus<'a> {
     pub text: &'a str,
     line: usize,
@@ -41,7 +41,7 @@ impl<'a> Corpus<'a> {
     }
 
     pub fn advance_by(&mut self, bytes: usize) {
-        let skipped_lines = &self.text[..bytes].lines();
+        let skipped_lines = &self.text[..bytes].split('\n');
         let lines = skipped_lines.clone().count() - 1;
         let cols = skipped_lines
             .clone()
@@ -74,17 +74,19 @@ pub fn lex(corpus: &str) -> Result<Vec<Token>, Error> {
     while !head.text.is_empty() {
         // lexers are listed in order of priority (low = better)
         let lexer_idxs = ALL.matches(head.text);
-        let token = match lexer_idxs.iter().min() {
-            Some(i) => LEXERS[i](&head)?,
+        let token_res = match lexer_idxs.into_iter().min() {
+            Some(i) => LEXERS[i](&head),
             None => return Err(Error::NoMatch(head.text.to_owned())),
         };
-        head.advance_by(token.bytes);
-        tokens.push(token);
+        match token_res {
+            Ok(t) => {
+                head.advance_by(t.bytes);
+                tokens.push(t);
+            },
+            Err(Error::NoToken(bytes)) => head.advance_by(bytes),
+            Err(other_error) => return Err(other_error),
+        };
     }
-    tokens = tokens
-        .into_iter()
-        .filter(|t| t.elem != Lexeme::Nothing)
-        .collect();
     Ok(tokens)
 }
 
@@ -104,10 +106,18 @@ macro_rules! gen_matchers {
 }
 
 gen_matchers! {
-    parens => r"[()]",
+    parens => r"^[\(\)]",
     true_ => r"^#t(?:rue)?",
     false_ => r"^#f(?:alse)?",
-    string => r#"^"((?:[^"\\]|\\[^\s]|\\\s*)*)""#,
+    string => r#"(?x)^
+        "                 # open quote
+            ((?:          # match one of:
+                [^"\\]  | #   any character that isnt " or \
+                \\[^\s] | #   "\C" where C is any non whitespace
+                \\\s*     #   "\(S*)" where S is any whitespace
+            )*)           # 0 or more times
+        "                 # close quote
+    "#,
     inf_nan => r"^(\+|-)(inf|nan)\.0",
     rational_number => r"(?x)^
         ([\+-]?\d+       # numerator
@@ -122,11 +132,11 @@ gen_matchers! {
         (?:e[\+-]?\d+)?)i # imaginary exponent (and i)",
     real_number => r"(?x)^
         ([\+-]?\d*\.\d+) # real
-        (e[\+-]?\d+)?     # exponent",
+        (e[\+-]?\d+)?    # exponent",
     integer => r"(?x)^
         [\+-]?\d+       # integer
         (?:e[\+-]?\d+)? # exponent",
-    identifier => r"^\p{Alphabetic}\w*",
+    identifier => r"^[\w\pP\pS--\d][\w\pP\pS]*",
     whitespace => r"^\s+",
     line_comment => r"^;[^\r\n]*\r|\n|(?:\r\n)",
 }
@@ -165,8 +175,11 @@ mod decode {
                         while let Some(g) = gs.peek() {
                             if str_is_whitespace(g) {
                                 let _ = gs.next();
+                            } else {
+                                break;
                             }
                         }
+                        string.push(' ');
                     }
                     Some(g) => return Err(Error::InvalidEscapeSequence(format!(r"\{}", g))),
                 },
@@ -289,12 +302,12 @@ mod decode {
 
     pub fn whitespace(re: Regex, corpus: &Corpus) -> Result<Token> {
         let len = re.find(corpus.text).unwrap().as_str().len();
-        Ok(corpus.tag(Lexeme::Nothing, len))
+        Err(Error::NoToken(len))
     }
 
     pub fn line_comment(re: Regex, corpus: &Corpus) -> Result<Token> {
         let len = re.find(corpus.text).unwrap().as_str().len();
-        Ok(corpus.tag(Lexeme::Nothing, len))
+        Err(Error::NoToken(len))
     }
 }
 
@@ -303,20 +316,32 @@ fn lexeme_validation() {
     use Lexeme::*;
     use Number::*;
     let first = |v: Result<Vec<Token>, _>| v.unwrap()[0].elem.clone();
+
+    // Lexically significant symbols
     assert_eq!(first(lex("#t")), True);
     assert_eq!(first(lex("#true")), True);
     assert_eq!(first(lex("#f")), False);
     assert_eq!(first(lex("#false")), False);
+    assert_eq!(first(lex("(")), LParen);
+    assert_eq!(first(lex(")")), RParen);
+
+    // Strings
     assert_eq!(
         first(lex(r#""hello world""#)),
-        String_("hello world".to_owned())
+        String_("hello world".to_owned()),
     );
     assert_eq!(
         first(lex(r#""\"hello\" \"world\"""#)),
-        String_("\"hello\" \"world\"".to_owned())
+        String_("\"hello\" \"world\"".to_owned()),
     );
-    assert_eq!(first(lex("(")), LParen);
-    assert_eq!(first(lex(")")), RParen);
+    assert_eq!(
+        first(lex(r#""\\\n\r\t\0\"""#)),
+        String_("\\\n\r\t\0\"".to_owned()),
+    );
+    assert_eq!(
+        first(lex("\"asdf\\    \n  asdf\"")),
+        String_("asdf asdf".to_owned()),
+    );
 
     // Numbers
     assert_eq!(first(lex("3")), Num(Integral(3)));
@@ -327,5 +352,51 @@ fn lexeme_validation() {
     assert_eq!(first(lex("-3/-5")), Num(Rational(3, 5)));
     assert_eq!(first(lex("5i")), Num(Complex(0.0, 5.0)));
     assert_eq!(first(lex("8.9e7-2.2e-8i")), Num(Complex(8.9e7, -2.2e-8)));
+
+    // Identifiers
     assert_eq!(first(lex("i")), Identifier("i".to_owned()));
+    assert_eq!(first(lex("-")), Identifier("-".to_owned()));
+    assert_eq!(first(lex("'")), Identifier("'".to_owned()));
+    assert_eq!(first(lex("over_9000")), Identifier("over_9000".to_owned()));
+    assert_eq!(first(lex("Under_33_times")), Identifier("Under_33_times".to_owned()));
+    assert_eq!(
+        first(lex("`~<>.,/'[]{}\\|!@#$%^&*_-+=")),
+        Identifier("`~<>.,/'[]{}\\|!@#$%^&*_-+=".to_owned()),
+    );
+}
+
+#[test]
+fn lexeme_sequence_validation() {
+    use Lexeme::*;
+    use Number::*;
+    let untag = |v: Result<Vec<Token>, _>| v
+        .unwrap()
+        .iter()
+        .map(|t| t.elem.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        untag(lex("(+ 5 19)")),
+        vec![
+            LParen,
+            Identifier("+".to_owned()),
+            Num(Integral(5)),
+            Num(Integral(19)),
+            RParen,
+        ],
+    );
+}
+
+#[test]
+fn line_and_column_numbers_are_sane() {
+    use Lexeme::*;
+    use Number::*;
+
+    let input = "line_1_col_1\nline_2_col_2\n  line_3_col_3 line_3_col_16\n\nline_5";
+    let expected = vec![(1, 1), (2, 1), (3, 3), (3, 16), (5, 1)];
+    let actual = lex(input)
+        .unwrap()
+        .into_iter()
+        .map(|t| (t.line, t.col))
+        .collect::<Vec<_>>();
+    assert_eq!(expected, actual);
 }
