@@ -1,8 +1,9 @@
-use crate::{error::LexError as Error, types::Number};
+use crate::{error::LexError, types::Number};
 use once_cell::sync::Lazy;
 use regex::{Regex, RegexSet};
 use unicode_segmentation::UnicodeSegmentation;
 
+type Result<T> = std::result::Result<T, LexError>;
 pub type Token = Tagged<Lexeme>;
 
 #[derive(Debug)]
@@ -68,7 +69,7 @@ impl<'a> Corpus<'a> {
     }
 }
 
-pub fn lex(corpus: &str) -> Result<Vec<Token>, Error> {
+pub fn lex(corpus: &str) -> Result<Vec<Token>> {
     let mut tokens: Vec<Token> = Vec::new();
     let mut head = Corpus::new(corpus);
     while !head.text.is_empty() {
@@ -76,21 +77,21 @@ pub fn lex(corpus: &str) -> Result<Vec<Token>, Error> {
         let lexer_idxs = ALL.matches(head.text);
         let token_res = match lexer_idxs.into_iter().min() {
             Some(i) => LEXERS[i](&head),
-            None => return Err(Error::NoMatch(head.text.to_owned())),
+            None => return Err(LexError::NoMatch(head.text.to_owned())),
         };
         match token_res {
             Ok(t) => {
                 head.advance_by(t.bytes);
                 tokens.push(t);
             }
-            Err(Error::NoToken(bytes)) => head.advance_by(bytes),
+            Err(LexError::NoToken(bytes)) => head.advance_by(bytes),
             Err(other_error) => return Err(other_error),
         };
     }
     Ok(tokens)
 }
 
-type Lexer = dyn for<'a> Fn(&'a Corpus) -> Result<Token, Error> + Send + Sync;
+type Lexer = dyn for<'a> Fn(&'a Corpus) -> Result<Token> + Send + Sync;
 macro_rules! gen_matchers {
     { $($f:ident => $re:expr),+$(,)? } => {
         static ALL: Lazy<RegexSet> = Lazy::new(||
@@ -143,7 +144,7 @@ gen_matchers! {
 
 mod decode {
     use crate::{
-        error::LexError as Error,
+        error::LexError,
         lexer::{Corpus, Lexeme, Token},
         types::Number,
     };
@@ -151,7 +152,7 @@ mod decode {
     use std::str::FromStr;
     use unicode_segmentation::UnicodeSegmentation;
 
-    type Result<T> = std::result::Result<T, Error>;
+    type Result<T> = std::result::Result<T, LexError>;
 
     fn str_is_whitespace(s: &str) -> bool {
         s.chars().all(char::is_whitespace)
@@ -163,7 +164,7 @@ mod decode {
         while let Some(g) = gs.next() {
             match g {
                 r"\" => match gs.next() {
-                    None => return Err(Error::EscapeAtEndOfString(s.to_owned())),
+                    None => return Err(LexError::EscapeAtEndOfString(s.to_owned())),
                     Some(r"\") => string.push('\\'),
                     Some("n") => string.push('\n'),
                     Some("r") => string.push('\r'),
@@ -181,7 +182,7 @@ mod decode {
                         }
                         string.push(' ');
                     }
-                    Some(g) => return Err(Error::InvalidEscapeSequence(format!(r"\{}", g))),
+                    Some(g) => return Err(LexError::InvalidEscapeSequence(format!(r"\{}", g))),
                 },
                 g => string.push_str(g),
             }
@@ -302,12 +303,12 @@ mod decode {
 
     pub fn whitespace(re: Regex, corpus: &Corpus) -> Result<Token> {
         let len = re.find(corpus.text).unwrap().as_str().len();
-        Err(Error::NoToken(len))
+        Err(LexError::NoToken(len))
     }
 
     pub fn line_comment(re: Regex, corpus: &Corpus) -> Result<Token> {
         let len = re.find(corpus.text).unwrap().as_str().len();
-        Err(Error::NoToken(len))
+        Err(LexError::NoToken(len))
     }
 }
 
