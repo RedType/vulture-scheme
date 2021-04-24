@@ -82,7 +82,7 @@ pub fn lex(corpus: &str) -> Result<Vec<Token>, Error> {
             Ok(t) => {
                 head.advance_by(t.bytes);
                 tokens.push(t);
-            },
+            }
             Err(Error::NoToken(bytes)) => head.advance_by(bytes),
             Err(other_error) => return Err(other_error),
         };
@@ -154,7 +154,7 @@ mod decode {
     type Result<T> = std::result::Result<T, Error>;
 
     fn str_is_whitespace(s: &str) -> bool {
-        s.chars().all(|c| c.is_whitespace())
+        s.chars().all(char::is_whitespace)
     }
 
     fn replace_escapes(s: &str) -> Result<String> {
@@ -358,7 +358,10 @@ fn lexeme_validation() {
     assert_eq!(first(lex("-")), Identifier("-".to_owned()));
     assert_eq!(first(lex("'")), Identifier("'".to_owned()));
     assert_eq!(first(lex("over_9000")), Identifier("over_9000".to_owned()));
-    assert_eq!(first(lex("Under_33_times")), Identifier("Under_33_times".to_owned()));
+    assert_eq!(
+        first(lex("Under_33_times")),
+        Identifier("Under_33_times".to_owned())
+    );
     assert_eq!(
         first(lex("`~<>.,/'[]{}\\|!@#$%^&*_-+=")),
         Identifier("`~<>.,/'[]{}\\|!@#$%^&*_-+=".to_owned()),
@@ -369,11 +372,12 @@ fn lexeme_validation() {
 fn lexeme_sequence_validation() {
     use Lexeme::*;
     use Number::*;
-    let untag = |v: Result<Vec<Token>, _>| v
-        .unwrap()
-        .iter()
-        .map(|t| t.elem.clone())
-        .collect::<Vec<_>>();
+    let untag = |v: Result<Vec<Token>, _>| {
+        v.unwrap()
+            .iter()
+            .map(|t| t.elem.clone())
+            .collect::<Vec<_>>()
+    };
     assert_eq!(
         untag(lex("(+ 5 19)")),
         vec![
@@ -388,9 +392,6 @@ fn lexeme_sequence_validation() {
 
 #[test]
 fn line_and_column_numbers_are_sane() {
-    use Lexeme::*;
-    use Number::*;
-
     let input = "line_1_col_1\nline_2_col_2\n  line_3_col_3 line_3_col_16\n\nline_5";
     let expected = vec![(1, 1), (2, 1), (3, 3), (3, 16), (5, 1)];
     let actual = lex(input)
